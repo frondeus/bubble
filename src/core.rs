@@ -18,7 +18,6 @@ where
     }
 }
 
-
 /// Specialized bubble used for autoref trick
 ///
 pub trait SBubble<T, S> {
@@ -26,7 +25,6 @@ pub trait SBubble<T, S> {
         Err(t)
     }
 }
-
 
 /// Structure that implements [`SBubble`].
 ///
@@ -39,16 +37,13 @@ impl<T, U> Default for Marker<T, U> {
     }
 }
 
-impl<T, U> Marker<T, U> {
-    pub fn new() -> Self {
-        Self(PhantomData, PhantomData)
-    }
-}
-
 impl<T, S> SBubble<T, S> for &Marker<T, S> {}
 
-impl<T> SBubble<T, T> for &mut &mut &Marker<T, T> {
-    fn sbubble(&self, t: T) -> Result<T, T> {
-        Ok(t)
+impl<T, S> SBubble<T, S> for &mut &Marker<T, S>
+where
+    S: Bubble<T>,
+{
+    fn sbubble(&self, t: T) -> Result<S, T> {
+        S::bubble(t)
     }
 }

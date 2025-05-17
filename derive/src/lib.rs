@@ -59,7 +59,7 @@ impl BubbleVariant {
         let ident = &self.ident;
 
         Ok(quote! {
-            .or_else(|bot: #bot| (&mut &mut &bubble::Marker::<#bot, #field_ty>::new()).sbubble(bot)
+            .or_else(|bot: #bot| (&mut &bubble::Marker::<#bot, #field_ty>::default()).sbubble(bot)
                 // TODO: This assumes the variant has one anonymous field
                 .map(#top::#ident)
             )
@@ -100,11 +100,11 @@ impl BubbleVariant {
                 }
             }
 
-            impl bubble::SBubble<#top, #field_ty> for &mut &bubble::Marker<#top, #field_ty> {
-                fn sbubble(&self, t: #top) -> Result<#field_ty, #top> {
-                    #field_ty::bubble(t)
-                }
-            }
+            // impl bubble::SBubble<#top, #field_ty> for &mut &bubble::Marker<#top, #field_ty> {
+            //     fn sbubble(&self, t: #top) -> Result<#field_ty, #top> {
+            //         #field_ty::bubble(t)
+            //     }
+            // }
         })
     }
 }
