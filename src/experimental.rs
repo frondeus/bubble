@@ -1,3 +1,5 @@
+use std::marker::PhantomData;
+
 use thiserror::Error;
 
 /// This trait is used to convert a type `T` to a `Self` if possible.
@@ -6,12 +8,19 @@ use thiserror::Error;
 ///
 /// Automatically implemented for types that implement `From<T>`.
 pub trait Bubble<T>: Sized {
-    fn bubble(t: T) -> Result<Self, T>;
+    fn bubble(t: T) -> Result<Self, T> {
+        Err(t)
+    }
 }
 
-pub trait SpecializedBubble<T, S> {
-    fn sbubble(&self, t: T) -> Result<S, T>;
+pub trait SBubble<T, S> {
+    fn sbubble(&self, t: T) -> Result<S, T> {
+        Err(t)
+    }
 }
+
+impl<T, S, Marker> SBubble<T, S> for &Marker { }
+
 
 impl<T, U> Bubble<T> for U
 where
@@ -35,20 +44,59 @@ enum Top {
     C(#[from] C),
 }
 
+struct Marker<T>(PhantomData<T>);
+impl<T> Marker<T> {
+    fn new() -> Self { Self(PhantomData) }
+}
+
 impl From<Bottom> for Top {
     fn from(bot: Bottom) -> Top {
         Err(bot)
-            .or_else(|bot: Bottom| A::bubble(bot).map(Top::A))
-            .or_else(|bot: Bottom| Bottom::bubble(bot).map(Top::B))
-            .or_else(|bot: Bottom| C::bubble(bot).map(Top::C))
+            .or_else(|bot: Bottom| (&mut &Marker::<A>::new()).sbubble(bot)   .map(Top::A))
+            .or_else(|bot: Bottom| (&mut &Marker::<B>::new()).sbubble(bot)   .map(Top::B))
+            .or_else(|bot: Bottom| (&mut &Marker::<C>::new()).sbubble(bot)   .map(Top::C))
             .expect("Bottom should be A or B or C")
     }
 }
 
+impl SBubble<Bottom, A> for &mut &Marker<A> {
+    fn sbubble(&self, t: Bottom) -> Result<A, Bottom> {
+        A::bubble(t)
+    }
+}
+
+impl SBubble<Bottom, B> for &mut &Marker<B> {
+    fn sbubble(&self, t: Bottom) -> Result<B, Bottom> {
+        B::bubble(t)
+    }
+}
+impl SBubble<Bottom, Bottom> for &mut &Marker<B> {
+    fn sbubble(&self, t: Bottom) -> Result<Bottom, Bottom> {
+        Ok(t)
+    }
+}
+
+// impl From<Bottom> for Top {
+//     fn from(bot: Bottom) -> Top {
+//         Err(bot)
+//             .or_else(|bot: Bottom| A::bubble(bot).map(Top::A))
+//             .or_else(|bot: Bottom| Bottom::bubble(bot).map(Top::B))
+//             .or_else(|bot: Bottom| C::bubble(bot).map(Top::C))
+//             .expect("Bottom should be A or B or C")
+//     }
+// }
 impl Bubble<Bottom> for A {
     fn bubble(t: Bottom) -> Result<Self, Bottom> {
         match t {
             Bottom::A(a) => Ok(a),
+            _ => Err(t),
+        }
+    }
+}
+impl Bubble<Bottom> for B {
+    fn bubble(t: Bottom) -> Result<Self, Bottom> {
+        match t {
+            Bottom::B(b) => Ok(b),
             _ => Err(t),
         }
     }
@@ -62,6 +110,7 @@ enum Bottom {
     B(#[from] B),
 }
 
+
 #[derive(PartialEq, Debug, Error)]
 #[error("A")]
 struct A;
@@ -69,11 +118,11 @@ struct A;
 #[error("B")]
 struct B;
 
-impl Bubble<Bottom> for C {
-    fn bubble(t: Bottom) -> Result<Self, Bottom> {
-        Err(t)
-    }
-}
+// impl Bubble<Bottom, DoesntImplementMarker> for C {
+//     fn bubble(t: Bottom) -> Result<Self, Bottom> {
+//         Err(t)
+//     }
+// }
 
 #[derive(PartialEq, Debug, Error)]
 #[error("C")]

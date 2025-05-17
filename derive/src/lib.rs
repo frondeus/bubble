@@ -41,7 +41,7 @@ impl BubbleVariant {
 
 #[derive(FromField)]
 struct BubbleField {
-    ident: Option<syn::Ident>,
+    // ident: Option<syn::Ident>,
     ty: syn::Type,
 }
 
