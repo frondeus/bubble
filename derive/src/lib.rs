@@ -53,109 +53,134 @@ impl BubbleVariant {
             })
     }
 
-    fn reconstruct_from_branch(&self, top: &syn::Ident, bot: &syn::Type) -> Result<TokenStream> {
-        let field_ty = self.field_ty()?;
-
+    fn reconstruct_has_ty(&self, top: &syn::Ident) -> Result<TokenStream> {
         let ident = &self.ident;
 
         Ok(quote! {
-            .or_else(|bot: #bot| (&mut &mut &mut &mut &bubble::Marker::<#bot, #field_ty>::default()).sbubble(bot)
-                // TODO: This assumes the variant has one anonymous field
-                .map(#top::#ident)
-            )
+            #top::#ident(t) => t.has_ty(ty),
         })
     }
 
-    fn reconstruct_from(&self, top: &BubbleInput) -> Result<TokenStream> {
-        let field_ty = self.field_ty()?;
-        let reconstruction = top.reconstruct_from(field_ty)?;
-        let top = &top.ident;
+    fn reconstruct_cast_into(&self, top: &syn::Ident) -> Result<TokenStream> {
+        let ident = &self.ident;
+        Ok(quote! {
+            // TODO: It assumes the variant has one anonymous field
+            #top::#ident(t) => t.cast_into(),
+        })
+    }
 
+    fn reconstruct_build_from_branch(
+        &self,
+        top: &syn::Ident,
+        from: &syn::Type,
+    ) -> Result<TokenStream> {
+        let ident = &self.ident;
+        let field_ty = self.field_ty()?;
+
+        Ok(quote! {
+            .or_else(|from| (&mut &mut &bubble::Marker::<#from, #field_ty>::default()).sbuild_from(from).map(#top::#ident))
+        })
+    }
+
+    fn reconstruct_from(&self, top: &syn::Ident) -> Result<TokenStream> {
+        let field_ty = self.field_ty()?;
         if self.fields.fields.iter().any(|f| f.has_from()) {
             return Ok(quote! {});
         }
 
         Ok(quote! {
             impl From<#field_ty> for #top {
-                fn from(bot: #field_ty) -> Self {
-                    use bubble::SBubble;
-                    #reconstruction
+                fn from(from: #field_ty) -> Self {
+                    use bubble::BuildFrom;
+                    Self::build_from(from).unwrap()
                 }
             }
         })
     }
 
-    fn reconstruct(&self, top: &syn::Ident) -> Result<TokenStream> {
+    fn reconstruct_build_from(&self, top: &BubbleInput) -> Result<TokenStream> {
         let field_ty = self.field_ty()?;
-        let ident = &self.ident;
+        let branches = top
+            .variants()?
+            .iter()
+            .map(|v| v.reconstruct_build_from_branch(&top.ident, field_ty))
+            .collect::<Result<Vec<_>>>()?;
+        let top = &top.ident;
+
+        let from = self.reconstruct_from(top)?;
 
         Ok(quote! {
-            impl Bubble<#top, bubble::DeriveBubble> for #field_ty {
-                fn bubble(t: #top) -> Result<Self, #top> {
-                    match t {
-                        // TODO it assumes every variant has a single anonymous field
-                        #top::#ident (a) => Ok(a),
-                        _ => Err(t)
-                    }
+            #from
+            impl bubble::BuildFrom<#field_ty> for #top {
+                fn build_from(from: #field_ty) -> Result<Self, #field_ty> {
+                    use bubble::SBuildFrom;
+
+                    Err(from)
+                        #(#branches)*
+
                 }
             }
-
-            // impl bubble::SBubble<#top, #field_ty> for &mut &bubble::Marker<#top, #field_ty> {
-            //     fn sbubble(&self, t: #top) -> Result<#field_ty, #top> {
-            //         #field_ty::bubble(t)
-            //     }
-            // }
         })
     }
 }
 
 impl BubbleInput {
-    fn reconstruct_from(&self, bot: &syn::Type) -> Result<TokenStream> {
-        let top = &self.ident;
-        let variants = match &self.data {
-            ast::Data::Enum(variants) => variants,
-            _ => {
-                return Err(
-                    darling::Error::custom("Only enums are supported").with_span(&self.ident)
-                );
-            }
-        };
+    fn variants(&self) -> Result<&Vec<BubbleVariant>> {
+        match &self.data {
+            ast::Data::Enum(variants) => Ok(variants),
+            _ => Err(darling::Error::custom("Only enums are supported").with_span(&self.ident)),
+        }
+    }
+
+    fn reconstruct_cast_into(&self) -> Result<TokenStream> {
+        let ident = &self.ident;
+        let variants = self.variants()?;
+        let has_ty = variants
+            .iter()
+            .map(|v| v.reconstruct_has_ty(ident))
+            .collect::<Result<Vec<_>>>()?;
+
         let variants = variants
             .iter()
-            .map(|v| v.reconstruct_from_branch(top, bot))
+            .map(|v| v.reconstruct_cast_into(ident))
             .collect::<Result<Vec<_>>>()?;
 
         Ok(quote! {
-            Err(bot)
-                #(#variants)*
-                .unwrap()
+            impl bubble::CastInto for #ident {
+                fn has_ty(&self, ty: std::any::TypeId) -> bool {
+                    match self {
+                        #(#has_ty)*
+                    }
+                }
+
+                fn cast_into(self) -> Box<dyn std::any::Any> {
+                    match self {
+                        #(#variants)*
+                    }
+                }
+            }
         })
     }
 
-    fn reconstruct(&self) -> Result<TokenStream> {
-        let ident = &self.ident;
-        let variants = match &self.data {
-            ast::Data::Enum(variants) => variants,
-            _ => {
-                return Err(
-                    darling::Error::custom("Only enums are supported").with_span(&self.ident)
-                );
-            }
-        };
-
-        let froms = variants
-            .iter()
-            .map(|v| v.reconstruct_from(self))
-            .collect::<Result<Vec<_>>>()?;
-
+    fn reconstruct_build_from(&self) -> Result<TokenStream> {
+        let variants = self.variants()?;
         let variants = variants
             .iter()
-            .map(|v| v.reconstruct(ident))
+            .map(|v| v.reconstruct_build_from(self))
             .collect::<Result<Vec<_>>>()?;
 
         Ok(quote! {
             #(#variants)*
-            #(#froms)*
+        })
+    }
+
+    fn reconstruct(&self) -> Result<TokenStream> {
+        let cast_into = self.reconstruct_cast_into()?;
+        let build_from = self.reconstruct_build_from()?;
+
+        Ok(quote! {
+            #cast_into
+            #build_from
         })
     }
 }

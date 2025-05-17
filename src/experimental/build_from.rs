@@ -1,43 +1,7 @@
-use std::{
-    any::{Any, TypeId},
-    marker::PhantomData,
-};
+use std::marker::PhantomData;
 
-/// Trait to allow "extract" variant type from an enum.
-///
-pub trait CastInto {
-    fn has_ty(&self, ty: TypeId) -> bool;
+use super::cast_into::CastInto;
 
-    fn has<T: 'static>(&self) -> bool {
-        self.has_ty(TypeId::of::<T>())
-    }
-
-    fn cast_into(self) -> Box<dyn Any>;
-
-    fn cast<T: 'static>(self) -> T
-    where
-        Self: Sized,
-    {
-        *self.cast_into().downcast::<T>().unwrap()
-    }
-}
-
-/// An error that is not composed of other errors.
-pub trait AtomicError {}
-
-impl<T> CastInto for T
-where
-    T: AtomicError + 'static,
-{
-    fn has_ty(&self, ty: std::any::TypeId) -> bool {
-        ty == std::any::TypeId::of::<T>()
-    }
-    fn cast_into(self) -> Box<dyn std::any::Any> {
-        Box::new(self)
-    }
-}
-
-/// Trait to allow "build" variant type from leaf node.
 pub trait BuildFrom<From> {
     fn build_from(from: From) -> Result<Self, From>
     where
@@ -58,7 +22,6 @@ impl<From, To> Default for Marker<From, To> {
     }
 }
 
-#[macro_export]
 macro_rules! marker {
     ($from: ty, $to: ty) => {
         (&mut &mut &Marker::<$from, $to>::default())
@@ -71,7 +34,6 @@ pub trait SBuildFrom<From, To> {
 
 impl<From, To> SBuildFrom<From, To> for &Marker<From, To> {
     fn sbuild_from(&self, from: From) -> Result<To, From> {
-        // eprintln!("Invoke ERR: {} -> {}", std::any::type_name::<From>(), std::any::type_name::<To>());
         Err(from)
     }
 }
@@ -82,8 +44,6 @@ where
     To: 'static,
 {
     fn sbuild_from(&self, from: From) -> Result<To, From> {
-        // eprintln!("Invoke CAST: {} -> {}", std::any::type_name::<From>(), std::any::type_name::<To>());
-
         if from.has::<To>() {
             Ok(from.cast::<To>())
         } else {
@@ -97,7 +57,50 @@ where
     To: BuildFrom<From>,
 {
     fn sbuild_from(&self, from: From) -> Result<To, From> {
-        // eprintln!("Invoke BUILD: {} -> {}", std::any::type_name::<From>(), std::any::type_name::<To>());
         To::build_from(from)
+    }
+}
+
+//----
+use super::cast_into::*;
+
+impl BuildFrom<A> for Top {
+    fn build_from(from: A) -> Result<Self, A> {
+        Ok(Top::A(from))
+    }
+}
+impl BuildFrom<Middle> for Top {
+    fn build_from(from: Middle) -> Result<Self, Middle> {
+        Err(from)
+            .or_else(|from| marker!(Middle, A).sbuild_from(from).map(Top::A))
+            .or_else(|from| marker!(Middle, Middle).sbuild_from(from).map(Top::Middle))
+    }
+}
+
+#[test]
+fn test_build_from() {
+    let top = Top::build_from(A).unwrap();
+    assert_eq!(top, Top::A(A));
+
+    let top = Top::build_from(Middle::Bottom(Bottom::A(A))).unwrap();
+    assert_eq!(top, Top::A(A));
+
+    let top = Top::build_from(Middle::Bottom(Bottom::B(B))).unwrap();
+    assert_eq!(top, Top::Middle(Middle::Bottom(Bottom::B(B))));
+}
+
+impl BuildFrom<Bottom> for Middle {
+    fn build_from(from: Bottom) -> Result<Self, Bottom> {
+        Err(from).or_else(|from| {
+            marker!(Bottom, Bottom)
+                .sbuild_from(from)
+                .map(Middle::Bottom)
+        })
+    }
+}
+
+impl BuildFrom<A> for Bottom {
+    fn build_from(from: A) -> Result<Self, A> {
+        Ok(Bottom::A(from))
     }
 }

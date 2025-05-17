@@ -1,5 +1,5 @@
-use crate::{bubble}; // Simulate that it is a separate crate
-use bubble::{Bubble, IntermediateBubble};
+use crate::{AtomicError, CastInto, bubble}; // Simulate that it is a separate crate
+use bubble::Bubble;
 
 use thiserror::Error;
 
@@ -24,16 +24,6 @@ enum Intermediate {
     Bottom(#[bubble(from)] Bottom),
 }
 
-impl<T, M> Bubble<Intermediate, (IntermediateBubble, M)> for T where T: Bubble<Bottom, M> {
-    fn bubble(t: Intermediate) -> Result<Self, Intermediate> {
-        match t {
-            Intermediate::Bottom(b) => {
-                <T as Bubble<Bottom, M>>::bubble(b).map_err(Intermediate::Bottom)
-            }
-        }
-    }
-}
-
 #[derive(PartialEq, Debug, Error, Bubble)]
 enum Bottom {
     #[error("A")]
@@ -47,13 +37,27 @@ enum Bottom {
 #[error("A")]
 struct A;
 
+impl CastInto for A {
+    fn has_ty(&self, ty: std::any::TypeId) -> bool {
+        ty == std::any::TypeId::of::<A>()
+    }
+    fn cast_into(self) -> Box<dyn std::any::Any> {
+        eprintln!("Casting A");
+        Box::new(self)
+    }
+}
+
 #[derive(PartialEq, Debug, Error)]
 #[error("B")]
 struct B;
 
+impl AtomicError for B {}
+
 #[derive(PartialEq, Debug, Error)]
 #[error("C")]
 struct C;
+
+impl AtomicError for C {}
 
 fn top_inner_a() -> Result<(), Top> {
     bottom_a()?;

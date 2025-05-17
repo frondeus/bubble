@@ -1,221 +1,372 @@
 // use std::marker::PhantomData;
 
-// use thiserror::Error;
+mod build_from;
+mod cast_into;
 
-// /// This trait is used to convert a type `T` to a `Self` if possible.
-// /// If the conversion is not possible, the original type `T` is returned.
-// /// Used to chain different conversions together instead of relying on `match` inside `from` implementations.
-// ///
-// /// Automatically implemented for types that implement `From<T>`.
-// pub trait Bubble<T>: Sized {
-//     fn bubble(t: T) -> Result<Self, T> {
-//         Err(t)
-//     }
+// pub trait BuildFrom<From> {
+//     fn build_from(t: From) -> Result<Self, From>
+//     where
+//         Self: Sized;
 // }
 
-// pub trait SBubble<T, S> {
-//     fn sbubble(&self, t: T) -> Result<S, T> {
-//         Err(t)
-//     }
+// struct MarkSelf;
+// struct MarkDerive;
+
+// pub trait CastInto<To> {
+//     fn cast_into(self) -> Result<To, Self>
+//     where
+//         Self: Sized;
 // }
 
-// impl<T, S, Marker> SBubble<T, S> for &Marker {}
-
-// impl<T, U> Bubble<T> for U
-// where
-//     U: From<T>,
-// {
-//     fn bubble(t: T) -> Result<U, T> {
-//         Ok(From::from(t))
-//     }
-// }
-
-// struct Marker<T, U>(PhantomData<T>, PhantomData<U>);
-// impl<T, U> Marker<T, U> {
-//     fn new() -> Self {
-//         Self(PhantomData, PhantomData)
-//     }
-// }
-
-// //--------------------------------
-
-// #[derive(PartialEq, Debug, Error)]
-// enum Top {
-//     #[error("A")]
-//     A(#[from] A),
-//     #[error("B")]
-//     B(#[source] Bottom),
-
-//     #[error("C")]
-//     C(#[from] C),
-// }
-// // variant impls
-// impl Bubble<Top> for A {
-//     fn bubble(t: Top) -> Result<Self, Top> {
-//         match t {
-//             Top::A(a) => Ok(a),
-//             _ => Err(t),
-//         }
-//     }
-// }
-// impl SBubble<Top, A> for &mut &Marker<Top, A> {
-//     fn sbubble(&self, t: Top) -> Result<A, Top> {
-//         A::bubble(t)
-//     }
-// }
-
-// impl Bubble<Top> for Bottom {
-//     fn bubble(t: Top) -> Result<Self, Top> {
-//         match t {
-//             Top::B(b) => Ok(b),
-//             _ => Err(t),
-//         }
-//     }
-// }
-// impl SBubble<Top, Bottom> for &mut &Marker<Top, Bottom> {
-//     fn sbubble(&self, t: Top) -> Result<Bottom, Top> {
-//         Bottom::bubble(t)
-//     }
-// }
-// impl Bubble<Top> for C {
-//     fn bubble(t: Top) -> Result<Self, Top> {
-//         match t {
-//             Top::C(c) => Ok(c),
-//             _ => Err(t),
-//         }
-//     }
-// }
-// impl SBubble<Top, C> for &mut &Marker<Top, C> {
-//     fn sbubble(&self, t: Top) -> Result<C, Top> {
-//         C::bubble(t)
-//     }
-// }
-// // structimpl
-// impl SBubble<Top, Top> for &mut &Marker<Top, Top> {
-//     fn sbubble(&self, t: Top) -> Result<Top, Top> {
-//         Ok(t)
-//     }
-// }
-
-// impl From<Bottom> for Top {
-//     fn from(bot: Bottom) -> Top {
-//         Err(bot)
-//             .or_else(|bot: Bottom| (&mut &Marker::<Bottom, A>::new()).sbubble(bot).map(Top::A))
-//             .or_else(|bot: Bottom| {
-//                 (&mut &Marker::<Bottom, Bottom>::new())
-//                     .sbubble(bot)
-//                     .map(Top::B)
-//             })
-//             .or_else(|bot: Bottom| (&mut &Marker::<Bottom, C>::new()).sbubble(bot).map(Top::C))
-//             .expect("Bottom should be A or B or C")
-//     }
-// }
-
-// // impl From<Bottom> for Top {
-// //     fn from(bot: Bottom) -> Top {
-// //         Err(bot)
-// //             .or_else(|bot: Bottom| A::bubble(bot).map(Top::A))
-// //             .or_else(|bot: Bottom| Bottom::bubble(bot).map(Top::B))
-// //             .or_else(|bot: Bottom| C::bubble(bot).map(Top::C))
-// //             .expect("Bottom should be A or B or C")
+// // impl<T> CastInto<T> for T {
+// //     fn cast_into(self) -> Result<T, T> {
+// //         Ok(self)
 // //     }
 // // }
-// // variant impls
-// impl Bubble<Bottom> for A {
-//     fn bubble(t: Bottom) -> Result<Self, Bottom> {
-//         match t {
-//             Bottom::A(a) => Ok(a),
-//             _ => Err(t),
-//         }
-//     }
+
+// pub trait SBuildFrom<From, To> {
+//     fn sbuild_from(&self, t: From) -> Result<To, From>;
 // }
-// impl SBubble<Bottom, A> for &mut &Marker<Bottom, A> {
-//     fn sbubble(&self, t: Bottom) -> Result<A, Bottom> {
-//         A::bubble(t)
+
+// pub trait SCastInto<From, To> {
+//     fn scast_into(&self, t: From) -> Result<To, From>;
+// }
+
+// struct Marker<From, To>(PhantomData<(From, To)>);
+
+// impl<From, To> Default for Marker<From, To> {
+//     fn default() -> Self {
+//         Self(PhantomData)
 //     }
 // }
 
-// impl Bubble<Bottom> for B {
-//     fn bubble(t: Bottom) -> Result<Self, Bottom> {
-//         match t {
-//             Bottom::B(b) => Ok(b),
-//             _ => Err(t),
-//         }
+// macro_rules! marker {
+//     ($from: ty , $to: ty) => {
+//         (&mut &mut &mut &Marker::<$from, $to>::default())
+//     };
+// }
+
+// impl<From, To> SBuildFrom<From, To> for &Marker<From, To> {
+//     fn sbuild_from(&self, t: From) -> Result<To, From> {
+//         eprintln!(
+//             "Dispatching FROM {} TO {}: Err",
+//             std::any::type_name::<From>(),
+//             std::any::type_name::<To>()
+//         );
+//         Err(t)
 //     }
 // }
-// impl SBubble<Bottom, B> for &mut &Marker<Bottom, B> {
-//     fn sbubble(&self, t: Bottom) -> Result<B, Bottom> {
-//         B::bubble(t)
+
+// impl<From, To> SBuildFrom<From, To> for &mut &Marker<From, To>
+// where
+//     From: CastInto<To>,
+// {
+//     fn sbuild_from(&self, t: From) -> Result<To, From> {
+//         eprintln!(
+//             "Dispatching FROM {} TO {}: CastInto",
+//             std::any::type_name::<From>(),
+//             std::any::type_name::<To>()
+//         );
+//         marker!(From, To).scast_into(t)
+//         // Err(t)
 //     }
 // }
-// // structimpl
-// impl SBubble<Bottom, Bottom> for &mut &Marker<Bottom, Bottom> {
-//     fn sbubble(&self, t: Bottom) -> Result<Bottom, Bottom> {
+
+// impl<From> SBuildFrom<From, From> for &mut &mut &Marker<From, From> {
+//     fn sbuild_from(&self, t: From) -> Result<From, From> {
+//         eprintln!("Dispatching SELF {}", std::any::type_name::<From>(),);
 //         Ok(t)
 //     }
 // }
 
-// #[derive(PartialEq, Debug, Error)]
-// enum Bottom {
-//     #[error("A")]
-//     A(#[from] A),
-//     #[error("B")]
-//     B(#[from] B),
+// impl<From, To> SBuildFrom<From, To> for &mut &mut &mut &Marker<From, To>
+// where
+//     To: BuildFrom<From>,
+// {
+//     fn sbuild_from(&self, t: From) -> Result<To, From> {
+//         eprintln!(
+//             "Dispatching FROM {} TO {}: BuildFrom",
+//             std::any::type_name::<From>(),
+//             std::any::type_name::<To>()
+//         );
+//         To::build_from(t)
+//     }
 // }
 
-// #[derive(PartialEq, Debug, Error)]
-// #[error("A")]
+// //--
+
+// impl<From, To> SCastInto<From, To> for &Marker<From, To> {
+//     fn scast_into(&self, t: From) -> Result<To, From> {
+//         eprintln!(
+//             "CAST FROM {} TO {}: Err",
+//             std::any::type_name::<From>(),
+//             std::any::type_name::<To>()
+//         );
+//         // marker!(From, To).scast_into(t)
+//         Err(t)
+//     }
+// }
+
+// impl<From> SCastInto<From, From> for &mut &Marker<From, From> {
+//     fn scast_into(&self, t: From) -> Result<From, From> {
+//         eprintln!("CAST SELF {}", std::any::type_name::<From>(),);
+//         Ok(t)
+//     }
+// }
+
+// impl<From, To> SCastInto<From, To> for &mut &mut &Marker<From, To>
+// where
+//     From: CastInto<To>,
+// {
+//     fn scast_into(&self, t: From) -> Result<To, From> {
+//         eprintln!(
+//             "CAST FROM {} TO {}: CastInto",
+//             std::any::type_name::<From>(),
+//             std::any::type_name::<To>()
+//         );
+//         t.cast_into()
+//     }
+// }
+// ///
+// /// -----------------------------
+
+// #[derive(Debug, PartialEq)]
+// enum Top {
+//     A(A),
+//     B(B),
+//     Middle(Middle),
+// }
+
+// impl<T> CastInto<T> for Top
+// // where Middle: CastInto<T>
+// {
+//     fn cast_into(self) -> Result<T, Top> {
+//         println!("CastInto<T> for Top");
+
+//         match self {
+//             Top::A(a) => marker!(A, T).scast_into(a).map_err(Top::A),
+//             Top::B(b) => marker!(B, T).scast_into(b).map_err(Top::B),
+//             Top::Middle(m) => marker!(Middle, T).scast_into(m).map_err(Top::Middle),
+//         }
+//     }
+// }
+
+// #[test]
+// fn cast_into_top() {
+//     let top_a = Top::A(A);
+//     let a = marker!(Top, A).scast_into(top_a).unwrap();
+//     assert_eq!(a, A);
+// }
+// // impl CastInto<A> for Top {
+// //     fn cast_into(self) -> Result<A, Top> {
+// //         println!("CastInto<A> for Top");
+// //         match self {
+// //             Top::A(a) => Ok(a),
+// //             t => Err(t),
+// //         }
+// //     }
+// // }
+// // impl CastInto<Middle> for Top {
+// //     fn cast_into(self) -> Result<Middle, Top> {
+// //         println!("CastInto<Middle> for Top");
+// //         match self {
+// //             Top::Middle(m) => Ok(m),
+// //             t => Err(t),
+// //         }
+// //     }
+// // }
+
+// impl BuildFrom<A> for Top {
+//     fn build_from(t: A) -> Result<Self, A> {
+//         eprintln!("BuildFrom<A> for Top");
+//         Err(t)
+//             .or_else(|t| marker!(A, A).sbuild_from(t).map(Top::A))
+//             .or_else(|t| marker!(A, B).sbuild_from(t).map(Top::B))
+//             .or_else(|t| marker!(A, Middle).sbuild_from(t).map(Top::Middle))
+//     }
+// }
+// impl BuildFrom<B> for Top {
+//     fn build_from(t: B) -> Result<Self, B> {
+//         eprintln!("BuildFrom<B> for Top");
+//         Err(t)
+//             .or_else(|t| marker!(B, A).sbuild_from(t).map(Top::A))
+//             .or_else(|t| marker!(B, B).sbuild_from(t).map(Top::B))
+//             .or_else(|t| marker!(B, Middle).sbuild_from(t).map(Top::Middle))
+//     }
+// }
+// impl BuildFrom<Middle> for Top {
+//     fn build_from(t: Middle) -> Result<Self, Middle> {
+//         eprintln!("BuildFrom<Middle> for Top");
+//         Err(t)
+//             .or_else(|t| marker!(Middle, A).sbuild_from(t).map(Top::A))
+//             .or_else(|t| marker!(Middle, B).sbuild_from(t).map(Top::B))
+//             .or_else(|t| marker!(Middle, Middle).sbuild_from(t).map(Top::Middle))
+//     }
+// }
+
+// impl From<A> for Top {
+//     fn from(t: A) -> Self {
+//         marker!(A, Top).sbuild_from(t).unwrap()
+//     }
+// }
+// impl From<B> for Top {
+//     fn from(t: B) -> Self {
+//         marker!(B, Top).sbuild_from(t).unwrap()
+//     }
+// }
+// impl From<Middle> for Top {
+//     fn from(t: Middle) -> Self {
+//         marker!(Middle, Top).sbuild_from(t).unwrap()
+//     }
+// }
+
+// impl BuildFrom<Top> for Middle {
+//     fn build_from(t: Top) -> Result<Self, Top>
+//     where
+//         Self: Sized,
+//     {
+//         eprintln!("BuildFrom<Top> for Middle");
+//         match t {
+//             Top::A(a) => marker!(A, Middle).sbuild_from(a).map_err(Top::A),
+//             Top::B(b) => marker!(B, Middle).sbuild_from(b).map_err(Top::B),
+//             Top::Middle(m) => marker!(Middle, Middle).sbuild_from(m).map_err(Top::Middle),
+//         }
+//     }
+// }
+
+// #[derive(Debug, PartialEq)]
+// enum Middle {
+//     Bottom(Bottom),
+//     Bottom2(Bottom2),
+// }
+
+// impl<T> CastInto<T> for Middle
+// where
+//     Bottom: CastInto<T>,
+// {
+//     fn cast_into(self) -> Result<T, Middle> {
+//         eprintln!("CastInto<T> for Middle");
+//         match self {
+//             Middle::Bottom(b) => marker!(Bottom, T).scast_into(b).map_err(Middle::Bottom),
+//             Middle::Bottom2(b2) => marker!(Bottom2, T).scast_into(b2).map_err(Middle::Bottom2),
+//         }
+//     }
+// }
+
+// impl BuildFrom<Bottom> for Middle {
+//     fn build_from(t: Bottom) -> Result<Self, Bottom> {
+//         eprintln!("BuildFrom<Bottom> for Middle");
+//         Err(t).or_else(|t| marker!(Bottom, Bottom).sbuild_from(t).map(Middle::Bottom))
+//     }
+// }
+// impl BuildFrom<Bottom2> for Middle {
+//     fn build_from(t: Bottom2) -> Result<Self, Bottom2> {
+//         eprintln!("BuildFrom<Bottom2> for Middle");
+//         Err(t).or_else(|t| {
+//             marker!(Bottom2, Bottom2)
+//                 .sbuild_from(t)
+//                 .map(Middle::Bottom2)
+//         })
+//     }
+// }
+
+// impl From<Bottom> for Middle {
+//     fn from(t: Bottom) -> Self {
+//         marker!(Bottom, Middle).sbuild_from(t).unwrap()
+//     }
+// }
+
+// impl From<Bottom2> for Middle {
+//     fn from(t: Bottom2) -> Self {
+//         marker!(Bottom2, Middle).sbuild_from(t).unwrap()
+//     }
+// }
+
+// impl BuildFrom<Middle> for Bottom {
+//     fn build_from(t: Middle) -> Result<Self, Middle>
+//     where
+//         Self: Sized,
+//     {
+//         eprintln!("BuildFrom<Middle> for Bottom");
+//         match t {
+//             Middle::Bottom(b) => Ok(b),
+//             b => Err(b),
+//         }
+//     }
+// }
+
+// #[derive(Debug, PartialEq)]
+// enum Bottom {
+//     A(A),
+// }
+
+// impl CastInto<A> for Bottom {
+//     fn cast_into(self) -> Result<A, Bottom> {
+//         eprintln!("CastInto<A> for Bottom");
+//         match self {
+//             Bottom::A(a) => Ok(a),
+//         }
+//     }
+// }
+
+// #[derive(Debug, PartialEq)]
+// enum Bottom2 {
+//     B(B),
+// }
+
+// impl CastInto<B> for Bottom2 {
+//     fn cast_into(self) -> Result<B, Bottom2> {
+//         eprintln!("CastInto<B> for Bottom2");
+//         match self {
+//             Bottom2::B(b) => Ok(b),
+//         }
+//     }
+// }
+
+// #[derive(Debug, PartialEq)]
 // struct A;
-// #[derive(PartialEq, Debug, Error)]
-// #[error("B")]
+
+// #[derive(Debug, PartialEq)]
 // struct B;
 
-// // impl Bubble<Bottom, DoesntImplementMarker> for C {
-// //     fn bubble(t: Bottom) -> Result<Self, Bottom> {
-// //         Err(t)
-// //     }
-// // }
-
-// #[derive(PartialEq, Debug, Error)]
-// #[error("C")]
-// struct C;
-
-// fn top_a() -> Result<(), Top> {
-//     bottom_a()?;
+// fn top() -> Result<(), Top> {
+//     middle()?;
 //     Ok(())
 // }
 
-// fn bottom_a() -> Result<(), Bottom> {
-//     Err(A.into())
-// }
-
-// fn bottom_b() -> Result<(), Bottom> {
-//     Err(B.into())
-// }
-
-// fn top_b() -> Result<(), Top> {
-//     bottom_b()?;
+// fn middle() -> Result<(), Middle> {
+//     bottom()?;
 //     Ok(())
 // }
 
-// fn top_c() -> Result<(), Top> {
-//     Err(C.into())
+// fn bottom() -> Result<(), Bottom> {
+//     return Err(Bottom::A(A));
+// }
+
+// fn top2() -> Result<(), Top> {
+//     middle2()?;
+//     Ok(())
+// }
+
+// fn middle2() -> Result<(), Middle> {
+//     bottom2()?;
+//     Ok(())
+// }
+
+// fn bottom2() -> Result<(), Bottom2> {
+//     return Err(Bottom2::B(B));
 // }
 
 // #[test]
-// fn ex_a() {
-//     let res = top_a().unwrap_err();
-//     assert_eq!(res, Top::A(A));
+// fn test_middle() {
+//     let top = top().unwrap_err();
+
+//     assert_eq!(top, Top::A(A));
 // }
 
 // #[test]
-// fn ex_b() {
-//     let res = top_b().unwrap_err();
-//     assert_eq!(res, Top::B(Bottom::B(B)));
-// }
+// fn test_middle2() {
+//     let top = top2().unwrap_err();
 
-// #[test]
-// fn ex_c() {
-//     let res = top_c().unwrap_err();
-//     assert_eq!(res, Top::C(C));
+//     assert_eq!(top, Top::B(B));
 // }
