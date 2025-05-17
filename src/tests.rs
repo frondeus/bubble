@@ -1,6 +1,6 @@
-use super::*;
+use super::core::SpecializedBubble;
 use super::derive::Bubble;
-use super::core::{SpecializedBubble};
+use super::*;
 
 use thiserror::Error;
 
@@ -31,11 +31,7 @@ impl From<Bottom> for Top {
         A::bubble(bot)
             .map(Top::A)
             .or_else(|bot: Bottom| (&mut &mut &BottomMark).sbubble(bot).map(Top::B))
-            .or_else(
-                |bot: Bottom| {
-                    (&mut &mut &CMark).sbubble(bot).map(Top::C)
-                }
-            )
+            .or_else(|bot: Bottom| (&mut &mut &CMark).sbubble(bot).map(Top::C))
             // .or_else(|bot| C::bubble(bot).map(Top::C))
             .expect("Bottom should be A or B")
     }

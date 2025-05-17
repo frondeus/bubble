@@ -1,9 +1,8 @@
-
 extern crate proc_macro;
 
+use darling::{FromDeriveInput, FromField, FromVariant, ast, util};
 use proc_macro2::TokenStream;
 use quote::quote;
-use darling::{ast, util, FromDeriveInput, FromField, FromVariant};
 
 #[derive(FromDeriveInput)]
 struct BubbleInput {
@@ -20,7 +19,10 @@ struct BubbleVariant {
 impl BubbleVariant {
     fn reconstruction(self, top: syn::Ident) -> TokenStream {
         let ident = self.ident;
-        let field_ty = self.fields.fields.into_iter()
+        let field_ty = self
+            .fields
+            .fields
+            .into_iter()
             .map(|f| f.ty)
             .next()
             .expect("TODO");
@@ -46,13 +48,10 @@ struct BubbleField {
 impl BubbleInput {
     fn reconstruction(self) -> TokenStream {
         let ident = self.ident;
-        let variants = 
-        self.data.take_enum().unwrap();
-        let variants = variants.into_iter()
-        .map(
-
-            |v| v.reconstruction(ident.clone())
-        );
+        let variants = self.data.take_enum().unwrap();
+        let variants = variants
+            .into_iter()
+            .map(|v| v.reconstruction(ident.clone()));
         quote! {
             #(#variants)*
         }

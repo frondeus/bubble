@@ -36,7 +36,7 @@ impl<T, S, Mark> SpecializedBubble<T, S> for &mut &Mark {
     }
 }
 
-// impl<T, S> SpecializedBubble<T, S> for &mut &BubbleMark 
+// impl<T, S> SpecializedBubble<T, S> for &mut &BubbleMark
 // where S: Sized + Bubble<T> {
 //     fn sbubble(&self, t: T) -> Result<S, T> {
 //         S::bubble(t)
