@@ -7,11 +7,38 @@ pub trait Bubble<T>: Sized {
     fn bubble(t: T) -> Result<Self, T>;
 }
 
+pub trait SpecializedBubble<T, S> {
+    fn sbubble(&self, t: T) -> Result<S, T>;
+}
+
+// pub trait HasBubble{}
+
 impl<T, U> Bubble<T> for U
 where
     U: From<T>,
 {
-    fn bubble(t: T) -> Result<Self, T> {
+    fn bubble(t: T) -> Result<U, T> {
         Ok(From::from(t))
     }
 }
+
+// pub struct BubbleMark;
+
+impl<T, Mark> SpecializedBubble<T, T> for &Mark {
+    fn sbubble(&self, t: T) -> Result<T, T> {
+        Ok(t)
+    }
+}
+
+impl<T, S, Mark> SpecializedBubble<T, S> for &mut &Mark {
+    fn sbubble(&self, t: T) -> Result<S, T> {
+        Err(t)
+    }
+}
+
+// impl<T, S> SpecializedBubble<T, S> for &mut &BubbleMark 
+// where S: Sized + Bubble<T> {
+//     fn sbubble(&self, t: T) -> Result<S, T> {
+//         S::bubble(t)
+//     }
+// }

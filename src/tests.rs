@@ -1,33 +1,52 @@
 use super::*;
 use super::derive::Bubble;
+use super::core::{SpecializedBubble};
 
 use thiserror::Error;
 
-#[derive(PartialEq, Debug, Error)]
+#[derive(PartialEq, Debug, Error, Bubble)]
 enum Top {
     #[error("A")]
     A(#[source] A),
     #[error("B")]
     B(#[source] Bottom),
+
+    #[error("C")]
+    C(#[source] C),
 }
+
+// impl From<A> for Top {
+//     fn from(bot: A) -> Top {
+//         A::bubble(bot)
+//         .map(Top::A)
+//         .or_else(|bot| (&mut &BottomMark).sbubble(bot).map(Top::B))
+//         // .or_else(|bot| (&mut &CMark)bubble(bot).map(Top::C))
+//         .expect("Bottom should be A or B")
+//         // Top::A(a)
+//     }
+// }
 
 impl From<Bottom> for Top {
     fn from(bot: Bottom) -> Top {
         A::bubble(bot)
             .map(Top::A)
-            .or_else(|bot| Bottom::bubble(bot).map(Top::B))
+            .or_else(|bot: Bottom| (&mut &mut &BottomMark).sbubble(bot).map(Top::B))
+            .or_else(
+                |bot: Bottom| {
+                    (&mut &mut &CMark).sbubble(bot).map(Top::C)
+                }
+            )
+            // .or_else(|bot| C::bubble(bot).map(Top::C))
             .expect("Bottom should be A or B")
     }
 }
 
-impl Bubble<Bottom> for A {
-    fn bubble(t: Bottom) -> Result<Self, Bottom> {
-        match t {
-            Bottom::A(a) => Ok(a),
-            _ => Err(t),
-        }
-    }
-}
+struct BottomMark;
+// impl SpecializedBubble<Bottom, Bottom> for &mut &BottomMark {
+//     fn sbubble(&self, t: Bottom) -> Result<Bottom, Bottom> {
+//         Bottom::bubble(t)
+//     }
+// }
 
 #[derive(PartialEq, Debug, Error, Bubble)]
 enum Bottom {
@@ -44,17 +63,38 @@ struct A;
 #[error("B")]
 struct B;
 
-fn top() -> Result<(), Top> {
-    bottom()?;
+struct CMark;
+
+#[derive(PartialEq, Debug, Error)]
+#[error("C")]
+struct C;
+
+fn top_a() -> Result<(), Top> {
+    bottom_a()?;
     Ok(())
 }
 
-fn bottom() -> Result<(), Bottom> {
+fn bottom_a() -> Result<(), Bottom> {
     Err(A.into())
 }
 
+fn bottom_b() -> Result<(), Bottom> {
+    Err(B.into())
+}
+
+fn top_b() -> Result<(), Top> {
+    bottom_b()?;
+    Ok(())
+}
+
 #[test]
-fn test() {
-    let res = top().unwrap_err();
+fn test_a() {
+    let res = top_a().unwrap_err();
     assert_eq!(res, Top::A(A));
+}
+
+#[test]
+fn test_b() {
+    let res = top_b().unwrap_err();
+    assert_eq!(res, Top::B(Bottom::B(B)));
 }
