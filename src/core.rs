@@ -9,19 +9,6 @@ pub trait Bubble<T>: Sized {
     fn bubble(t: T) -> Result<Self, T>;
 }
 
-// pub trait FromAnyVariant<T>: Sized {
-//     fn from(t: T) -> Self;
-// }
-
-/// Specialized bubble used for autoref trick
-///
-pub trait SBubble<T, S> {
-    fn sbubble(&self, t: T) -> Result<S, T> {
-        Err(t)
-    }
-}
-impl<T, S, Marker> SBubble<T, S> for &Marker {}
-
 impl<T, U> Bubble<T> for U
 where
     U: From<T>,
@@ -30,6 +17,16 @@ where
         Ok(From::from(t))
     }
 }
+
+
+/// Specialized bubble used for autoref trick
+///
+pub trait SBubble<T, S> {
+    fn sbubble(&self, t: T) -> Result<S, T> {
+        Err(t)
+    }
+}
+
 
 /// Structure that implements [`SBubble`].
 ///
@@ -47,6 +44,8 @@ impl<T, U> Marker<T, U> {
         Self(PhantomData, PhantomData)
     }
 }
+
+impl<T, S> SBubble<T, S> for &Marker<T, S> {}
 
 impl<T> SBubble<T, T> for &mut &mut &Marker<T, T> {
     fn sbubble(&self, t: T) -> Result<T, T> {

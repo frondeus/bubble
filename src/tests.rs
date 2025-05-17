@@ -13,13 +13,22 @@ enum Top {
 
     #[error("C")]
     C(#[from] C),
+
+    #[error("Intermediate")]
+    Intermediate(#[bubble(from)] Intermediate),
+}
+
+#[derive(PartialEq, Debug, Error, Bubble)]
+enum Intermediate {
+    #[error("Bottom")]
+    Bottom(#[bubble(from)] Bottom),
 }
 
 #[derive(PartialEq, Debug, Error, Bubble)]
 enum Bottom {
     #[error("A")]
     A(#[from] A),
-    
+
     #[error("B")]
     B(#[from] B),
 }
@@ -62,6 +71,16 @@ fn top_c() -> Result<(), Top> {
     Err(C.into())
 }
 
+fn top_intermediate() -> Result<(), Top> {
+    intermediate()?;
+    Ok(())
+}
+
+fn intermediate() -> Result<(), Intermediate> {
+    bottom_a()?;
+    Ok(())
+}
+
 #[test]
 fn test_inner_a() {
     let res = top_inner_a().unwrap_err();
@@ -84,5 +103,11 @@ fn test_c() {
 #[test]
 fn test_outer_a() {
     let res = top_outer_a().unwrap_err();
+    assert_eq!(res, Top::A(A));
+}
+
+#[test]
+fn test_intermediate() {
+    let res = top_intermediate().unwrap_err();
     assert_eq!(res, Top::A(A));
 }
