@@ -1,16 +1,18 @@
 extern crate proc_macro;
 
-use darling::{FromDeriveInput, FromField, FromVariant, ast, util};
+use darling::{FromDeriveInput, FromField, FromVariant, Result, ast, util};
 use proc_macro2::TokenStream;
 use quote::quote;
 
 #[derive(FromDeriveInput)]
+#[darling(attributes(bubble))]
 struct BubbleInput {
     ident: syn::Ident,
     data: ast::Data<BubbleVariant, util::Ignored>,
 }
 
 #[derive(FromVariant)]
+#[darling(attributes(bubble))]
 struct BubbleVariant {
     ident: syn::Ident,
     fields: ast::Fields<BubbleField>,
@@ -21,50 +23,73 @@ struct BubbleVariant {
 struct BubbleField {
     // ident: Option<syn::Ident>,
     ty: syn::Type,
+
+    #[darling(default)]
+    from: bool,
+
     attrs: Vec<syn::Attribute>,
 }
 
+impl BubbleField {
+    fn has_from(&self) -> bool {
+        self.attrs.iter().any(|a| a.path().is_ident("from"))
+    }
+}
+
 impl BubbleVariant {
-    fn field_ty(&self) -> &syn::Type {
+    fn field_ty(&self) -> Result<&syn::Type> {
         self.fields
             .fields
             .iter()
-            .inspect(|f | {  dbg!(f); } )
-            .filter(|f | !f.attrs.is_empty())
+            // .inspect(|f | {  dbg!(f); } )
+            .filter(|f| f.from || !f.attrs.is_empty())
             .map(|f| &f.ty)
             .next()
-            .expect("Variant should have at least one of: #[source], #[from]")
+            .ok_or_else(|| {
+                darling::Error::custom(
+                    "Variant should have at least one of: #[source], #[from], #[bubble]",
+                )
+                .with_span(&self.ident)
+            })
     }
 
-    fn from_branch_reconstruction(&self, top: &syn::Ident, bot: &syn::Type) -> TokenStream {
-        let field_ty = self.field_ty();
+    fn reconstruct_from_branch(&self, top: &syn::Ident, bot: &syn::Type) -> Result<TokenStream> {
+        let field_ty = self.field_ty()?;
 
         let ident = &self.ident;
 
-        quote! {
-            .or_else(|bot: #bot| (&mut &mut &Marker::<#bot, #field_ty>::new()).sbubble(bot).map(#top::#ident))
-        }
+        Ok(quote! {
+            .or_else(|bot: #bot| (&mut &mut &bubble::Marker::<#bot, #field_ty>::new()).sbubble(bot)
+                // TODO: This assumes the variant has one anonymous field
+                .map(#top::#ident)
+            )
+        })
     }
 
-    fn from_reconstruction(&self, top: &BubbleInput) -> TokenStream {
-        let field_ty = self.field_ty();
-        let reconstruction = top.from_reconstruction(&field_ty);
+    fn reconstruct_from(&self, top: &BubbleInput) -> Result<TokenStream> {
+        let field_ty = self.field_ty()?;
+        let reconstruction = top.reconstruct_from(field_ty)?;
         let top = &top.ident;
 
-        quote! {
+        if self.fields.fields.iter().any(|f| f.has_from()) {
+            return Ok(quote! {});
+        }
+
+        Ok(quote! {
             impl From<#field_ty> for #top {
                 fn from(bot: #field_ty) -> Self {
+                    use bubble::SBubble;
                     #reconstruction
                 }
             }
-        }
+        })
     }
 
-    fn reconstruction(&self, top: &syn::Ident) -> TokenStream {
-        let field_ty = self.field_ty();
+    fn reconstruct(&self, top: &syn::Ident) -> Result<TokenStream> {
+        let field_ty = self.field_ty()?;
         let ident = &self.ident;
 
-        quote! {
+        Ok(quote! {
             impl Bubble<#top> for #field_ty {
                 fn bubble(t: #top) -> Result<Self, #top> {
                     match t {
@@ -75,62 +100,77 @@ impl BubbleVariant {
                 }
             }
 
-            impl SBubble<#top, #field_ty> for &mut &Marker<#top, #field_ty> {
+            impl bubble::SBubble<#top, #field_ty> for &mut &bubble::Marker<#top, #field_ty> {
                 fn sbubble(&self, t: #top) -> Result<#field_ty, #top> {
                     #field_ty::bubble(t)
                 }
             }
-        }
+        })
     }
 }
 
-
 impl BubbleInput {
-    fn from_reconstruction(&self, bot: &syn::Type) -> TokenStream {
+    fn reconstruct_from(&self, bot: &syn::Type) -> Result<TokenStream> {
         let top = &self.ident;
         let variants = match &self.data {
             ast::Data::Enum(variants) => variants,
-            _ => panic!("TODO"),
+            _ => {
+                return Err(
+                    darling::Error::custom("Only enums are supported").with_span(&self.ident)
+                );
+            }
         };
         let variants = variants
             .iter()
-            .map(|v| v.from_branch_reconstruction(&top, bot));
+            .map(|v| v.reconstruct_from_branch(top, bot))
+            .collect::<Result<Vec<_>>>()?;
 
-        quote! {
+        Ok(quote! {
             Err(bot)
                 #(#variants)*
                 .unwrap()
-        }
+        })
     }
 
-    fn reconstruction(&self) -> TokenStream {
+    fn reconstruct(&self) -> Result<TokenStream> {
         let ident = &self.ident;
         let variants = match &self.data {
             ast::Data::Enum(variants) => variants,
-            _ => panic!("TODO"),
+            _ => {
+                return Err(
+                    darling::Error::custom("Only enums are supported").with_span(&self.ident)
+                );
+            }
         };
 
         let froms = variants
             .iter()
-            .map(|v| v.from_reconstruction(&self))
-            .collect::<Vec<_>>();
+            .map(|v| v.reconstruct_from(self))
+            .collect::<Result<Vec<_>>>()?;
 
         let variants = variants
-            .into_iter()
-            .map(|v| v.reconstruction(&ident));
+            .iter()
+            .map(|v| v.reconstruct(ident))
+            .collect::<Result<Vec<_>>>()?;
 
-
-
-        quote! {
+        Ok(quote! {
             #(#variants)*
             #(#froms)*
-        }
+        })
     }
 }
 
-#[proc_macro_derive(Bubble)]
+#[proc_macro_derive(Bubble, attributes(bubble))]
 pub fn derive_bubble(_item: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let input = syn::parse_macro_input!(_item as syn::DeriveInput);
-    let input = BubbleInput::from_derive_input(&input).expect("TODO");
-    input.reconstruction().into()
+    let input = match BubbleInput::from_derive_input(&input) {
+        Ok(i) => i,
+        Err(e) => {
+            return e.write_errors().into();
+        }
+    };
+    input
+        .reconstruct()
+        .unwrap_or_else(|e| e.write_errors())
+        .into()
 }

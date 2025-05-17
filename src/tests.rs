@@ -1,26 +1,27 @@
-use super::core::SBubble;
-use super::derive::Bubble;
-use super::*;
+use crate::bubble; // Simulate that it is a separate crate
+use bubble::Bubble;
 
 use thiserror::Error;
 
 #[derive(PartialEq, Debug, Error, Bubble)]
 enum Top {
     #[error("A")]
-    A(#[source] A),
+    A(#[from] A),
+
     #[error("B")]
-    B(#[source] Bottom),
+    B(#[bubble(from)] Bottom),
 
     #[error("C")]
-    C(#[source] C),
+    C(#[from] C),
 }
 
 #[derive(PartialEq, Debug, Error, Bubble)]
 enum Bottom {
     #[error("A")]
-    A(#[source] A),
+    A(#[from] A),
+    
     #[error("B")]
-    B(#[source] B),
+    B(#[from] B),
 }
 
 #[derive(PartialEq, Debug, Error)]
@@ -60,8 +61,6 @@ fn top_b() -> Result<(), Top> {
 fn top_c() -> Result<(), Top> {
     Err(C.into())
 }
-
-
 
 #[test]
 fn test_inner_a() {

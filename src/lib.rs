@@ -1,7 +1,12 @@
 mod core;
 pub use core::*;
 
-pub mod derive {
+pub use bubble_derive::Bubble;
+
+// For tests
+#[cfg(test)]
+pub(crate) mod bubble {
+    pub use crate::core::*;
     pub use bubble_derive::Bubble;
 }
 
