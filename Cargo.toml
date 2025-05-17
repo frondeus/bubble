@@ -5,3 +5,7 @@ edition = "2024"
 
 [dependencies]
 thiserror = "2.0.12"
+bubble-derive = { path = "derive" }
+
+[workspace]
+members = ["derive"]
