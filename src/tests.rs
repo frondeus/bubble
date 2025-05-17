@@ -1,4 +1,4 @@
-use super::core::SpecializedBubble;
+use super::core::SBubble;
 use super::derive::Bubble;
 use super::*;
 
@@ -15,59 +15,33 @@ enum Top {
     C(#[source] C),
 }
 
-// impl From<A> for Top {
-//     fn from(bot: A) -> Top {
-//         A::bubble(bot)
-//         .map(Top::A)
-//         .or_else(|bot| (&mut &BottomMark).sbubble(bot).map(Top::B))
-//         // .or_else(|bot| (&mut &CMark)bubble(bot).map(Top::C))
-//         .expect("Bottom should be A or B")
-//         // Top::A(a)
-//     }
-// }
-
-impl From<Bottom> for Top {
-    fn from(bot: Bottom) -> Top {
-        A::bubble(bot)
-            .map(Top::A)
-            .or_else(|bot: Bottom| (&mut &mut &BottomMark).sbubble(bot).map(Top::B))
-            .or_else(|bot: Bottom| (&mut &mut &CMark).sbubble(bot).map(Top::C))
-            // .or_else(|bot| C::bubble(bot).map(Top::C))
-            .expect("Bottom should be A or B")
-    }
-}
-
-struct BottomMark;
-// impl SpecializedBubble<Bottom, Bottom> for &mut &BottomMark {
-//     fn sbubble(&self, t: Bottom) -> Result<Bottom, Bottom> {
-//         Bottom::bubble(t)
-//     }
-// }
-
 #[derive(PartialEq, Debug, Error, Bubble)]
 enum Bottom {
     #[error("A")]
-    A(#[from] A),
+    A(#[source] A),
     #[error("B")]
-    B(#[from] B),
+    B(#[source] B),
 }
 
 #[derive(PartialEq, Debug, Error)]
 #[error("A")]
 struct A;
+
 #[derive(PartialEq, Debug, Error)]
 #[error("B")]
 struct B;
-
-struct CMark;
 
 #[derive(PartialEq, Debug, Error)]
 #[error("C")]
 struct C;
 
-fn top_a() -> Result<(), Top> {
+fn top_inner_a() -> Result<(), Top> {
     bottom_a()?;
     Ok(())
+}
+
+fn top_outer_a() -> Result<(), Top> {
+    Err(A.into())
 }
 
 fn bottom_a() -> Result<(), Bottom> {
@@ -83,9 +57,15 @@ fn top_b() -> Result<(), Top> {
     Ok(())
 }
 
+fn top_c() -> Result<(), Top> {
+    Err(C.into())
+}
+
+
+
 #[test]
-fn test_a() {
-    let res = top_a().unwrap_err();
+fn test_inner_a() {
+    let res = top_inner_a().unwrap_err();
     assert_eq!(res, Top::A(A));
 }
 
@@ -93,4 +73,17 @@ fn test_a() {
 fn test_b() {
     let res = top_b().unwrap_err();
     assert_eq!(res, Top::B(Bottom::B(B)));
+}
+
+#[test]
+
+fn test_c() {
+    let res = top_c().unwrap_err();
+    assert_eq!(res, Top::C(C));
+}
+
+#[test]
+fn test_outer_a() {
+    let res = top_outer_a().unwrap_err();
+    assert_eq!(res, Top::A(A));
 }
