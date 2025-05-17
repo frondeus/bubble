@@ -1,9 +1,13 @@
 #![allow(dead_code)]
 
-#[derive(PartialEq, Debug)]
+use thiserror::Error;
+
+#[derive(PartialEq, Debug, Error)]
 enum Top {
-    A(A),
-    B(Bottom),
+    #[error("A")]
+    A(#[source] A),
+    #[error("B")]
+    B(#[source] Bottom),
 }
 
 trait MaybeFrom<T>: Sized {
@@ -27,6 +31,7 @@ impl From<Bottom> for Top {
             .expect("Bottom should be A or B")
     }
 }
+
 impl MaybeFrom<Bottom> for A {
     fn maybe_from(t: Bottom) -> Result<Self, Bottom> {
         match t {
@@ -36,21 +41,19 @@ impl MaybeFrom<Bottom> for A {
     }
 }
 
-impl From<A> for Bottom {
-    fn from(a: A) -> Bottom {
-        Bottom::A(a)
-    }
-}
-
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Error)]
 enum Bottom {
-    A(A),
-    B(B),
+    #[error("A")]
+    A(#[from] A),
+    #[error("B")]
+    B(#[from] B),
 }
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Error)]
+#[error("A")]
 struct A;
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Error)]
+#[error("B")]
 struct B;
 
 fn top() -> Result<(), Top> {
