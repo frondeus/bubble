@@ -6,11 +6,32 @@ enum Top {
     B(Bottom),
 }
 
+trait MaybeFrom<T>: Sized {
+    fn maybe_from(t: T) -> Result<Self, T>;
+}
+
+impl<T, U> MaybeFrom<T> for U
+where
+    U: From<T>,
+{
+    fn maybe_from(t: T) -> Result<Self, T> {
+        Ok(From::from(t))
+    }
+}
+
 impl From<Bottom> for Top {
     fn from(bot: Bottom) -> Top {
-        match bot {
-            Bottom::A(a) => Top::A(a),
-            bot => Top::B(bot),
+        A::maybe_from(bot)
+            .map(Top::A)
+            .or_else(|bot| Bottom::maybe_from(bot).map(Top::B))
+            .expect("Bottom should be A or B")
+    }
+}
+impl MaybeFrom<Bottom> for A {
+    fn maybe_from(t: Bottom) -> Result<Self, Bottom> {
+        match t {
+            Bottom::A(a) => Ok(a),
+            _ => Err(t),
         }
     }
 }
