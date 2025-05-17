@@ -1,5 +1,5 @@
-use crate::bubble; // Simulate that it is a separate crate
-use bubble::Bubble;
+use crate::{bubble}; // Simulate that it is a separate crate
+use bubble::{Bubble, IntermediateBubble};
 
 use thiserror::Error;
 
@@ -22,6 +22,16 @@ enum Top {
 enum Intermediate {
     #[error("Bottom")]
     Bottom(#[bubble(from)] Bottom),
+}
+
+impl<T, M> Bubble<Intermediate, (IntermediateBubble, M)> for T where T: Bubble<Bottom, M> {
+    fn bubble(t: Intermediate) -> Result<Self, Intermediate> {
+        match t {
+            Intermediate::Bottom(b) => {
+                <T as Bubble<Bottom, M>>::bubble(b).map_err(Intermediate::Bottom)
+            }
+        }
+    }
 }
 
 #[derive(PartialEq, Debug, Error, Bubble)]

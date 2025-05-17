@@ -204,3 +204,7 @@ Downside of this approach?
 Obviously we loose an information about the context, that the network error has happened in the suboperation.
 
 
+# Does it work with deeply nested enums?
+
+Okay, you caught me! Currently that implementation is still limited
+and I'm working on making it more versatile. Remember? POC.

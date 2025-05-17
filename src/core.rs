@@ -5,11 +5,15 @@ use std::marker::PhantomData;
 /// Used to chain different conversions together instead of relying on `match` inside `from` implementations.
 ///
 /// Automatically implemented for types that implement `From<T>`.
-pub trait Bubble<T>: Sized {
+pub trait Bubble<T, M>: Sized {
     fn bubble(t: T) -> Result<Self, T>;
 }
 
-impl<T, U> Bubble<T> for U
+pub struct SelfBubble;
+pub struct IntermediateBubble;
+pub struct DeriveBubble;
+
+impl<T, U> Bubble<T, SelfBubble> for U
 where
     U: From<T>,
 {
@@ -39,9 +43,37 @@ impl<T, U> Default for Marker<T, U> {
 
 impl<T, S> SBubble<T, S> for &Marker<T, S> {}
 
+
 impl<T, S> SBubble<T, S> for &mut &Marker<T, S>
 where
-    S: Bubble<T>,
+    S: Bubble<T, DeriveBubble>,
+{
+    fn sbubble(&self, t: T) -> Result<S, T> {
+        S::bubble(t)
+    }
+}
+
+impl<T, S> SBubble<T, S> for &mut &mut &Marker<T, S>
+where
+    S: Bubble<T, (IntermediateBubble, DeriveBubble)>,
+{
+    fn sbubble(&self, t: T) -> Result<S, T> {
+        S::bubble(t)
+    }
+}
+
+impl<T, S> SBubble<T, S> for &mut &mut &mut &Marker<T, S>
+where
+    S: Bubble<T, (IntermediateBubble, SelfBubble)>,
+{
+    fn sbubble(&self, t: T) -> Result<S, T> {
+        S::bubble(t)
+    }
+}
+
+impl<T, S> SBubble<T, S> for &mut &mut &mut &mut &Marker<T, S>
+where
+    S: Bubble<T, SelfBubble>,
 {
     fn sbubble(&self, t: T) -> Result<S, T> {
         S::bubble(t)
