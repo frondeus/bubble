@@ -206,5 +206,106 @@ Obviously we loose an information about the context, that the network error has 
 
 # Does it work with deeply nested enums?
 
-Okay, you caught me! Currently that implementation is still limited
-and I'm working on making it more versatile. Remember? POC.
+Yep. Thanks to the magic of std::any::Any ;-) 
+
+# Okay so how it works internally?
+
+There are two (four really, but two are important) traits.
+
+One trait `CastInto` uses `Any` to squash error to its lowest leaf:
+
+If you have:
+```rust
+let top = Top::Middle(Middle::Bottom(Bottom::A(A)));
+```
+
+we can cast it into `A`
+```rust
+let top = Top::Middle(Middle::Bottom(Bottom::A(A)));
+let a: A = top.cast::<A>();
+```
+
+Bubble macro will generate for every enum something like this:
+
+```rust
+impl CastInto for Middle {
+    fn has_ty(&self, ty: TypeId) -> bool {
+        match self {
+            Middle::Bottom(bottom) => bottom.has_ty(ty),
+            ...
+        }
+    }
+
+    fn cast_into(self) -> Box<dyn Any> {
+        match self {
+            Middle::Bottom(bottom) => bottom.cast_into(),
+            ...
+        }
+    }
+}
+```
+
+Leafs can be implemented with `impl AtomicError for MyLeafError {}`
+
+Second important trait is `BuildFrom`. That's where magic happens!
+
+for every enum we generate couple of trait implementations.
+Each per variant.
+
+So, if your enum contains three variants :
+
+```rust
+enum Top {
+    A(A),
+    B(B),
+    C(C)
+}
+```
+
+Then we want to have:
+
+```rust
+impl BuildFrom<A> for Top {}
+impl BuildFrom<B> for Top {}
+and 
+impl BuildFrom<C> for Top {}
+```
+
+the idea is, that the "BuildFrom" is different from normal "From" because:
+1. It's fallible:
+```rust
+fn build_from(from: From) -> Result<Self, From>
+```
+2. Implementation is using `.or_else(|from| ...)` to try every variant
+3. It's using autoref specialization
+    1. First tries - maybe From -> To implements `BuildFrom`?
+    2. If not, tries second thing. Maybe `From` implements `CastInto` and actually contains `To`?
+        That's how intermediates work!
+        I'll talk about it in a sec.
+    3. Otherwise, return an error -> so that other `.or_else` branch can be tried.
+
+Okay, so what about intermediates?
+
+Lets say you have this tree:
+```rust
+Top::Middle(Middle::Bottom(Bottom::A(A)));
+```
+
+And now you are trying to build `Top` from `Middle`.
+Maybe you do `Middle::Bottom(Bottom::A(A))?` inside of a function or whatever.
+
+Since we want to achieve `Top::A` and not `Top::Middle`:
+
+`Top` implements `BuildFrom<Middle>` (because Middle is its immediate child)
+but first starts checking whether `A` can be build from `Middle`.
+`A` does not implement `BuildFrom<Middle>` (why should it?)
+But `Middle` implements `CastInto`.
+If we try to cast `Middle::Bottom(Bottom::A(A))` into `A` it will succeed.
+
+And since it succeeded, the result is `Top::A(A)`!
+
+What if its `Middle::Bottom(Bottom::B(B))?` and `Top` does not contain `B` variant?
+
+then `CastInto` of `Middle::Bottom(Bottom::B(B))` will return `B` and `B` != required `A` (we do the type_id comparison), so we will return `Err(from)` instead, so that the first `.or_else()` branch (the one that checks `A` creation) will fail, so that the next branch - branch checking `Middle` creation will be executed and voila, the result will be `Top::Middle(Middle::Bottom(Bottom::B(B)))`
+
+
