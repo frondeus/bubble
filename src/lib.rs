@@ -13,4 +13,5 @@ pub(crate) mod bubble {
 #[cfg(test)]
 mod tests;
 
-// mod experimental;
+#[cfg(test)]
+mod experimental;

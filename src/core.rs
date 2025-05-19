@@ -1,5 +1,6 @@
 use std::{
     any::{Any, TypeId},
+    error::Error,
     marker::PhantomData,
 };
 
@@ -99,5 +100,59 @@ where
     fn sbuild_from(&self, from: From) -> Result<To, From> {
         // eprintln!("Invoke BUILD: {} -> {}", std::any::type_name::<From>(), std::any::type_name::<To>());
         To::build_from(from)
+    }
+}
+
+#[derive(Debug)]
+pub struct Bubble<T: Error + 'static> {
+    marker: PhantomData<T>,
+    error: Box<dyn Error + 'static>,
+}
+
+impl<T: Error + 'static> Bubble<T> {
+    pub fn build<U: Error + 'static>(error: U) -> Result<Self, U> {
+        let original = error;
+        let mut iter = SourceIter {
+            current: Some(&original),
+        };
+        while let Some(source) = iter.next() {
+            if source.is::<T>() {
+                return Ok(Bubble {
+                    marker: PhantomData,
+                    error: Box::new(original),
+                });
+            }
+        }
+        Err(original)
+    }
+
+    pub fn full_error(&self) -> &(dyn Error + 'static) {
+        &*self.error
+    }
+
+    pub fn downcast_ref(&self) -> &T {
+        let mut iter = SourceIter {
+            current: Some(&*self.error),
+        };
+        while let Some(source) = iter.next() {
+            if source.is::<T>() {
+                return source.downcast_ref::<T>().unwrap();
+            }
+        }
+        panic!("No source found");
+    }
+}
+
+pub(crate) struct SourceIter<'a> {
+    pub(crate) current: Option<&'a (dyn Error + 'static)>,
+}
+
+impl<'a> Iterator for SourceIter<'a> {
+    type Item = &'a (dyn Error + 'static);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let current = self.current;
+        self.current = self.current.and_then(Error::source);
+        current
     }
 }
