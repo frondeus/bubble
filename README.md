@@ -208,8 +208,14 @@ How can we use it?
 Either downcasting to the `NetworkError` or accessing that dyn error:
 
 ```rust
+// Downcasting:
 let bubble = Bubble::<FooError>::build(BarError).unwrap(); // It fails, if BarError does not contain FooError in its source chain.
-let bubble = bubble.downcast_ref(); // Note, lack <T> and lack of unwrap. The former is kept in the `Bubble<T>` signature thanks to PhantomData. The latter does not need unwrap since we ensured the right type during `::build()` method.
+let bubble: &FooError = bubble.downcast_ref(); // Note, lack <T> and lack of unwrap. The former is kept in the `Bubble<T>` signature thanks to PhantomData. The latter does not need unwrap since we ensured the right type during `::build()` method.
+
+// Accessing dyn error:
+let bubble = Bubble::<FooError>::build(BarError).unwrap(); 
+let bubble: &dyn Error = bubble.full_error(); 
+
 ```
 
 # Does it work with deeply nested enums?
