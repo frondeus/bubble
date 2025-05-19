@@ -101,12 +101,6 @@ Yeah, that should work. But hear me out, that is my alternative:
 
 What i'm doing in this crate, is im changing how `#[from]` attribute works (from `thiserror` macro).
 
-Instead of plain `From<>` implementation I used autoref specialization (http://lukaskalbertodt.github.io/2019/12/05/generalized-autoref-based-specialization.html) to have a conversion.
-
-> ![WARNING]
-> Okay. I'm really bad at explaining how it works, but that probably doesn't matter (how).
-> So maybe an example of how to use will clarify the outcome of this crate
-
 Let's define such an error:
 
 ```rust
@@ -164,11 +158,18 @@ Okay. Now let's use my `Bubble` macro and see what will be the difference:
 #[derive(Debug, thiserror::Error, Bubble)]
 enum OperationError {
     #[error("Network call has failed")]
-    NetworkFailed(#[from] NetworkError),
+    NetworkFailed(#[bubble(bubble)] Bubble<NetworkError>),
+    //                              ^^^^^^ note an extra wrapper type  
+    //             ^^^^ - also we need to tag it
 
     #[error("The sub operation has failed")]
-    SubOperation(#[bubble(from)] SubOperationError),
-    //             ^^^^^^ note, this attribute has changed!
+    SubOperation(
+        #[bubble(from)] 
+    //    ^^^^^^ note, this attribute has changed!
+        #[source] 
+        //^^^^^ thiserror #[from] was implying #[source]. So now it's explicit
+        SubOperationError
+    ),
 
     #[error("Some io error has happened")]
     IO(#[from] std::io::Error),
@@ -196,56 +197,29 @@ a new, custom implementation of `From<SubOperationError> for OperationError` has
 `NetworkError` is also a variant of `SubOperationError` and therefore can be instantiated instead
 
 > ![WARNING]
-> The ordering of variants if bloody important!
-> What the macro does is basically `.map_or()` chains that return `Result`
-> So you want to make sure that `NetworkFailed` variant is BEFORE `SubOperation` variant.
+> The ordering of variants if NOT important! We first check every variant that has `#[bubble(bubble)]` attribute and only after that the rest
 
-Downside of this approach?
-Obviously we loose an information about the context, that the network error has happened in the suboperation.
+We also keep the information about the context.
+Even though we returned `OperationError::NetworkFailed(error)` the error inside has a type
+`Bubble<NetworkError>`... That structure contains `Box<dyn Error>` to the original error stack.
 
+How can we use it?
+
+Either downcasting to the `NetworkError` or accessing that dyn error:
+
+```rust
+let bubble = Bubble::<FooError>::build(BarError).unwrap(); // It fails, if BarError does not contain FooError in its source chain.
+let bubble = bubble.downcast_ref(); // Note, lack <T> and lack of unwrap. The former is kept in the `Bubble<T>` signature thanks to PhantomData. The latter does not need unwrap since we ensured the right type during `::build()` method.
+```
 
 # Does it work with deeply nested enums?
 
-Yep. Thanks to the magic of std::any::Any ;-) 
+Yep. Thanks to the (dyn Error).source() implementation.
 
 # Okay so how it works internally?
 
-There are two (four really, but two are important) traits.
+First of all this crate provides `Bubble<T>` type that uses `dyn Error` source chain to get the cause.
 
-One trait `CastInto` uses `Any` to squash error to its lowest leaf:
-
-If you have:
-```rust
-let top = Top::Middle(Middle::Bottom(Bottom::A(A)));
-```
-
-we can cast it into `A`
-```rust
-let top = Top::Middle(Middle::Bottom(Bottom::A(A)));
-let a: A = top.cast::<A>();
-```
-
-Bubble macro will generate for every enum something like this:
-
-```rust
-impl CastInto for Middle {
-    fn has_ty(&self, ty: TypeId) -> bool {
-        match self {
-            Middle::Bottom(bottom) => bottom.has_ty(ty),
-            ...
-        }
-    }
-
-    fn cast_into(self) -> Box<dyn Any> {
-        match self {
-            Middle::Bottom(bottom) => bottom.cast_into(),
-            ...
-        }
-    }
-}
-```
-
-Leafs can be implemented with `impl AtomicError for MyLeafError {}`
 
 Second important trait is `BuildFrom`. That's where magic happens!
 
@@ -276,13 +250,9 @@ the idea is, that the "BuildFrom" is different from normal "From" because:
 ```rust
 fn build_from(from: From) -> Result<Self, From>
 ```
-2. Implementation is using `.or_else(|from| ...)` to try every variant
-3. It's using autoref specialization
-    1. First tries - maybe From -> To implements `BuildFrom`?
-    2. If not, tries second thing. Maybe `From` implements `CastInto` and actually contains `To`?
-        That's how intermediates work!
-        I'll talk about it in a sec.
-    3. Otherwise, return an error -> so that other `.or_else` branch can be tried.
+2. Implementation is using `.or_else(|from| ...)` to try every variant that
+has `Bubble<>` (marked by `#[bubble(bubble)]`).
+3. If it fails, it goes back to the original `From::from` implementation.
 
 Okay, so what about intermediates?
 
@@ -291,21 +261,4 @@ Lets say you have this tree:
 Top::Middle(Middle::Bottom(Bottom::A(A)));
 ```
 
-And now you are trying to build `Top` from `Middle`.
-Maybe you do `Middle::Bottom(Bottom::A(A))?` inside of a function or whatever.
-
-Since we want to achieve `Top::A` and not `Top::Middle`:
-
-`Top` implements `BuildFrom<Middle>` (because Middle is its immediate child)
-but first starts checking whether `A` can be build from `Middle`.
-`A` does not implement `BuildFrom<Middle>` (why should it?)
-But `Middle` implements `CastInto`.
-If we try to cast `Middle::Bottom(Bottom::A(A))` into `A` it will succeed.
-
-And since it succeeded, the result is `Top::A(A)`!
-
-What if its `Middle::Bottom(Bottom::B(B))?` and `Top` does not contain `B` variant?
-
-then `CastInto` of `Middle::Bottom(Bottom::B(B))` will return `B` and `B` != required `A` (we do the type_id comparison), so we will return `Err(from)` instead, so that the first `.or_else()` branch (the one that checks `A` creation) will fail, so that the next branch - branch checking `Middle` creation will be executed and voila, the result will be `Top::Middle(Middle::Bottom(Bottom::B(B)))`
-
-
+That still works, as long as `#[source]` attributes in the chain are provided.
