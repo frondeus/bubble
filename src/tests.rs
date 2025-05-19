@@ -1,27 +1,39 @@
-use crate::{AtomicError, CastInto, bubble}; // Simulate that it is a separate crate
+use crate::bubble; // Simulate that it is a separate crate
 use bubble::Bubble;
 
 use thiserror::Error;
 
-#[derive(PartialEq, Debug, Error, Bubble)]
+#[derive(Debug, Error, Bubble)]
 enum Top {
-    #[error("A")]
-    A(#[from] A),
-
     #[error("B")]
-    B(#[bubble(from)] Bottom),
+    B(
+        #[source]
+        #[bubble(from)]
+        Bottom,
+    ),
 
     #[error("C")]
     C(#[from] C),
 
     #[error("Intermediate")]
-    Intermediate(#[bubble(from)] Intermediate),
+    Intermediate(
+        #[source]
+        #[bubble(from)]
+        Intermediate,
+    ),
+
+    #[error("A")]
+    A(#[bubble(bubble)] Bubble<A>),
 }
 
 #[derive(PartialEq, Debug, Error, Bubble)]
 enum Intermediate {
     #[error("Bottom")]
-    Bottom(#[bubble(from)] Bottom),
+    Bottom(
+        #[source]
+        #[bubble(from)]
+        Bottom,
+    ),
 }
 
 #[derive(PartialEq, Debug, Error, Bubble)]
@@ -37,27 +49,13 @@ enum Bottom {
 #[error("A")]
 struct A;
 
-impl CastInto for A {
-    fn has_ty(&self, ty: std::any::TypeId) -> bool {
-        ty == std::any::TypeId::of::<A>()
-    }
-    fn cast_into(self) -> Box<dyn std::any::Any> {
-        eprintln!("Casting A");
-        Box::new(self)
-    }
-}
-
 #[derive(PartialEq, Debug, Error)]
 #[error("B")]
 struct B;
 
-impl AtomicError for B {}
-
 #[derive(PartialEq, Debug, Error)]
 #[error("C")]
 struct C;
-
-impl AtomicError for C {}
 
 fn top_inner_a() -> Result<(), Top> {
     bottom_a()?;
@@ -98,30 +96,31 @@ fn intermediate() -> Result<(), Intermediate> {
 #[test]
 fn test_inner_a() {
     let res = top_inner_a().unwrap_err();
-    assert_eq!(res, Top::A(A));
+    assert!(matches!(res, Top::A(_)));
 }
 
 #[test]
 fn test_b() {
     let res = top_b().unwrap_err();
-    assert_eq!(res, Top::B(Bottom::B(B)));
+    assert!(matches!(res, Top::B(Bottom::B(_))));
 }
 
 #[test]
 
 fn test_c() {
     let res = top_c().unwrap_err();
-    assert_eq!(res, Top::C(C));
+    assert!(matches!(res, Top::C(_)));
 }
 
 #[test]
 fn test_outer_a() {
     let res = top_outer_a().unwrap_err();
-    assert_eq!(res, Top::A(A));
+    assert!(matches!(res, Top::A(_)));
 }
 
 #[test]
 fn test_intermediate() {
     let res = top_intermediate().unwrap_err();
-    assert_eq!(res, Top::A(A));
+    dbg!(&res);
+    assert!(matches!(res, Top::A(_)));
 }

@@ -27,6 +27,9 @@ struct BubbleField {
     #[darling(default)]
     from: bool,
 
+    #[darling(default)]
+    bubble: bool,
+
     attrs: Vec<syn::Attribute>,
 }
 
@@ -41,8 +44,7 @@ impl BubbleVariant {
         self.fields
             .fields
             .iter()
-            // .inspect(|f | {  dbg!(f); } )
-            .filter(|f| f.from || !f.attrs.is_empty())
+            .filter(|f| f.from || f.bubble || !f.attrs.is_empty())
             .map(|f| &f.ty)
             .next()
             .ok_or_else(|| {
@@ -53,39 +55,45 @@ impl BubbleVariant {
             })
     }
 
-    fn reconstruct_has_ty(&self, top: &syn::Ident) -> Result<TokenStream> {
-        let ident = &self.ident;
-
-        Ok(quote! {
-            #top::#ident(t) => t.has_ty(ty),
-        })
-    }
-
-    fn reconstruct_cast_into(&self, top: &syn::Ident) -> Result<TokenStream> {
-        let ident = &self.ident;
-        Ok(quote! {
-            // TODO: It assumes the variant has one anonymous field
-            #top::#ident(t) => t.cast_into(),
-        })
-    }
-
-    fn reconstruct_build_from_branch(
+    fn reconstruct_build_bubble_from_branch(
         &self,
         top: &syn::Ident,
-        from: &syn::Type,
+        // from: &syn::Type,
     ) -> Result<TokenStream> {
         let ident = &self.ident;
         let field_ty = self.field_ty()?;
 
+        let field_ty = Self::extract_from_bubble(field_ty)?;
         Ok(quote! {
-            .or_else(|from| (&mut &mut &bubble::Marker::<#from, #field_ty>::default()).sbuild_from(from).map(#top::#ident))
+            .or_else(|from| Bubble::<#field_ty>::build(from).map(#top::#ident))
         })
     }
 
+    fn extract_from_bubble(field_ty: &syn::Type) -> Result<&syn::Type> {
+        while let syn::Type::Path(syn::TypePath { path, .. }) = field_ty {
+            if let Some(last_segment) = path.segments.last() {
+                if last_segment.ident == quote::format_ident!("Bubble") {
+                    if let syn::PathArguments::AngleBracketed(
+                        syn::AngleBracketedGenericArguments { args, .. },
+                    ) = &last_segment.arguments
+                    {
+                        if let syn::GenericArgument::Type(ty) = &args[0] {
+                            return Ok(ty);
+                        }
+                    }
+                }
+            }
+        }
+        Err(darling::Error::custom("Expected a Bubble type"))
+    }
+
     fn reconstruct_from(&self, top: &syn::Ident) -> Result<TokenStream> {
-        let field_ty = self.field_ty()?;
+        let mut field_ty = self.field_ty()?;
         if self.fields.fields.iter().any(|f| f.has_from()) {
             return Ok(quote! {});
+        }
+        if self.fields.fields.iter().any(|f| f.bubble) {
+            field_ty = Self::extract_from_bubble(field_ty)?;
         }
 
         Ok(quote! {
@@ -99,24 +107,42 @@ impl BubbleVariant {
     }
 
     fn reconstruct_build_from(&self, top: &BubbleInput) -> Result<TokenStream> {
-        let field_ty = self.field_ty()?;
-        let branches = top
+        let mut field_ty = self.field_ty()?;
+        let ident = &self.ident;
+        let bubble_branches = top
             .variants()?
             .iter()
-            .map(|v| v.reconstruct_build_from_branch(&top.ident, field_ty))
+            .filter(|v| v.fields.fields.iter().any(|f| f.bubble))
+            .map(|v| v.reconstruct_build_bubble_from_branch(&top.ident))
             .collect::<Result<Vec<_>>>()?;
         let top = &top.ident;
 
         let from = self.reconstruct_from(top)?;
 
+        let mut final_from = quote! {
+            Ok::<#top, #field_ty>(#top::#ident(from))
+        };
+
+        if self.fields.fields.iter().any(|f| f.bubble) {
+            field_ty = Self::extract_from_bubble(field_ty)?;
+            final_from = quote! {
+                Bubble::<#field_ty>::build(from).map(#top::#ident)
+            };
+        }
+
         Ok(quote! {
             #from
             impl bubble::BuildFrom<#field_ty> for #top {
                 fn build_from(from: #field_ty) -> Result<Self, #field_ty> {
-                    use bubble::SBuildFrom;
 
                     Err(from)
-                        #(#branches)*
+                        #(#bubble_branches)*
+                        .or_else(
+                            |from| {
+                                #final_from
+                            }
+                        )
+
 
                 }
             }
@@ -132,36 +158,6 @@ impl BubbleInput {
         }
     }
 
-    fn reconstruct_cast_into(&self) -> Result<TokenStream> {
-        let ident = &self.ident;
-        let variants = self.variants()?;
-        let has_ty = variants
-            .iter()
-            .map(|v| v.reconstruct_has_ty(ident))
-            .collect::<Result<Vec<_>>>()?;
-
-        let variants = variants
-            .iter()
-            .map(|v| v.reconstruct_cast_into(ident))
-            .collect::<Result<Vec<_>>>()?;
-
-        Ok(quote! {
-            impl bubble::CastInto for #ident {
-                fn has_ty(&self, ty: std::any::TypeId) -> bool {
-                    match self {
-                        #(#has_ty)*
-                    }
-                }
-
-                fn cast_into(self) -> Box<dyn std::any::Any> {
-                    match self {
-                        #(#variants)*
-                    }
-                }
-            }
-        })
-    }
-
     fn reconstruct_build_from(&self) -> Result<TokenStream> {
         let variants = self.variants()?;
         let variants = variants
@@ -175,11 +171,11 @@ impl BubbleInput {
     }
 
     fn reconstruct(&self) -> Result<TokenStream> {
-        let cast_into = self.reconstruct_cast_into()?;
+        // let cast_into = self.reconstruct_cast_into()?;
         let build_from = self.reconstruct_build_from()?;
 
         Ok(quote! {
-            #cast_into
+            // #cast_into
             #build_from
         })
     }
